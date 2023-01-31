@@ -161,75 +161,24 @@ template<typename T> constexpr static inline T NEUTRON_MASS
 template<typename T> constexpr static inline T RYDBERG_CONSTANT
 {static_cast<T>(10973731.568539)};
 
-namespace rng {
-
-/*----------------------------------------------------*/
-/* RNG - xoshiro256+ - Drop-in replacement for rand() */
-/*----------------------------------------------------*/
-
-/* The seed must be initialized with non-zero values. */
-static inline u64 seed[4] = {1, 2, 3, 4};
-
-static inline u64 
-rotl(const u64 x, i32 k) {
-    return (x << k) | (x >> (64 - k));
-}
-
-static csr_inline u64 
-rand(void) {
-    const u64 result = rotl(seed[1] * 5, 7) * 9;
-    const u64 t = seed[1] << 17;
-    seed[2] ^= seed[0];
-    seed[3] ^= seed[1];
-    seed[1] ^= seed[2];
-    seed[0] ^= seed[3];
-    seed[2] ^= t;
-    seed[3] = rotl(seed[3], 45);
-    return result;
-}
-
-static csr_inline f64 
-rand_f64(void) {
-    const u64 result = rotl(seed[1] * 5, 7) * 9;
-    const u64 t = seed[1] << 17;
-    seed[2] ^= seed[0];
-    seed[3] ^= seed[1];
-    seed[1] ^= seed[2];
-    seed[0] ^= seed[3];
-    seed[2] ^= t;
-    seed[3] = rotl(seed[3], 45);
-    /* Convert the 64-bit unsigned integer to a f64 in the range [0, 1). */
-    return (f64)result / (f64)UINT64_MAX;
-}
-
-} // namespace rng
-
-/*============================================================================*/
-/* Mathematical Types Forward Declarations                                    */
-/*============================================================================*/
-
-template<typename T, std::size_t N> class vector;
-template<typename T, std::size_t N, std::size_t M> class matrix;
-template<typename T> class quaternion;
-
 /*============================================================================*/
 /* Macros Used For Vector Class                                               */
 /*============================================================================*/
 
-#define csr_vector_size(n) __attribute__((vector_size(n)))
-#define csr_align(n)       __attribute__((aligned(n)))
-#define csr_alias          __attribute__((may_alias))
+#define scl_vector_size(n) __attribute__((vector_size(n)))
+#define scl_align(n)       __attribute__((aligned(n)))
+#define scl_alias          __attribute__((may_alias))
 
 #if defined(__clang__)
-    #define csr_inline __attribute__((always_inline))
+    #define scl_inline __attribute__((always_inline))
 #elif defined(__GNUC__)
-    #define csr_inline __attribute__((always_inline))
+    #define scl_inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
-    #define csr_inline __forceinline
+    #define scl_inline __forceinline
 #endif
 
 /* Used to produce correct alignment for vectors. */
-constexpr csr_inline u32 
+constexpr scl_inline u32 
 next_power_of_two(u32 x) {
     x--;
     x |= x >> 1;
@@ -253,8 +202,8 @@ template<typename T, std::size_t N>
 class vector {
 public:
     #if defined(__clang__) || defined(__GNUC__)
-        csr_align(next_power_of_two(N * sizeof(T))) 
-        csr_vector_size(next_power_of_two(N * sizeof(T)))  T vec_type;
+        scl_align(next_power_of_two(N * sizeof(T))) 
+        scl_vector_size(next_power_of_two(N * sizeof(T)))  T vec_type;
     #elif defined(_MSC_VER)
         alignas(next_power_of_two(N * sizeof(T))) T vec_type[N];
     #endif
@@ -263,13 +212,13 @@ private:
     /* Variadic template to construct N number of vector elements
      * recursively. */
     template<typename... Args>
-    constexpr csr_inline void 
+    constexpr scl_inline void 
     recursion_construct(const u32& i, const T& first, const Args&... args) {
         vec_type[i] = first;
         recursion_construct(i + 1, args...);
     }
 
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     load(const T* array) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = array[i];
@@ -277,20 +226,20 @@ private:
         return *this;
     }
 
-    constexpr csr_inline void
+    constexpr scl_inline void
     store(T* array) {
         for (u32 i = 0; i < N; ++i) {
             array[i] = vec_type[i];
         }
     }
 
-    constexpr csr_inline vector&
+    constexpr scl_inline vector&
     insert_element(const i32& index, const T& value) {
         vec_type[index & (N - 1)] = value;
         return *this;
     }
 
-    constexpr csr_inline T&
+    constexpr scl_inline T&
     extract_element(const u32& index) {
         T x[N];
         store(x);
@@ -304,19 +253,19 @@ public:
     /*--------------*/
 
     /* Default constructor. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector() = default;
 
     /* Copy constructor. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const vector&) = default;
 
     /* Move constructor. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(vector&&) = default;
 
     /* Construct from scalar. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const T& scalar) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = scalar;
@@ -324,7 +273,7 @@ public:
     }
 
     /* Construct from array. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const T* array) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = array[i];
@@ -333,7 +282,7 @@ public:
 
     /* Construct recursively from individual elements. */
     template<typename... Args>
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const T& first, const Args&... args) {
         static_assert(sizeof...(args) == N - 1, 
             "Invalid number of elements.");
@@ -342,7 +291,7 @@ public:
     }    
 
     /* Construct from initializer list. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const std::initializer_list<T>& list) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = list.begin()[i];
@@ -350,7 +299,7 @@ public:
     }
 
     /* Construct from std::vector. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const std::vector<T>& vector) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = vector[i];
@@ -358,7 +307,7 @@ public:
     }
 
     /* Construct from std::array. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector(const std::array<T, N>& array) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = array[i];
@@ -366,15 +315,15 @@ public:
     }
 
     /* Copy assignment. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector& operator=(const vector&) = default;
 
     /* Move assignment. */
-    constexpr csr_inline 
+    constexpr scl_inline 
     vector& operator=(vector&&) = default;
 
     /* Assign from scalar. */
-    constexpr csr_inline
+    constexpr scl_inline
     vector& operator=(const T& scalar) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = scalar;
@@ -383,7 +332,7 @@ public:
     }
 
     /* Assign from array. */
-    constexpr csr_inline
+    constexpr scl_inline
     vector& operator=(const T* array) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = array[i];
@@ -392,20 +341,10 @@ public:
     }
 
     /* Assign from initializer list. */
-    constexpr csr_inline
+    constexpr scl_inline
     vector& operator=(const std::initializer_list<T>& list) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = list.begin()[i];
-        }
-        return *this;
-    }
-
-    /* Assign from matrix<T, N, M>, row by row. */
-    template<std::size_t M>
-    constexpr csr_inline
-    vector& operator=(const matrix<T, N, M>& matrix) {
-        for (u32 i = 0; i < N; ++i) {
-            vec_type[i] = matrix[i][0];
         }
         return *this;
     }
@@ -417,17 +356,17 @@ public:
     }
 
     /* Cast to pointer. */
-    constexpr csr_inline operator T*() {
+    constexpr scl_inline operator T*() {
         return vec_type;
     }
 
     /* Cast to const pointer. */
-    constexpr csr_inline operator const T*() const {
+    constexpr scl_inline operator const T*() const {
         return vec_type;
     }
 
     /* Cast to std::array. */
-    constexpr csr_inline operator std::array<T, N>() const {
+    constexpr scl_inline operator std::array<T, N>() const {
         std::array<T, N> array;
         for (u32 i = 0; i < N; ++i) {
             array[i] = vec_type[i];
@@ -436,7 +375,7 @@ public:
     }
 
     /* Cast to std::vector. */
-    constexpr csr_inline operator std::vector<T>() const {
+    constexpr scl_inline operator std::vector<T>() const {
         std::vector<T> vector(N);
         for (u32 i = 0; i < N; ++i) {
             vector[i] = vec_type[i];
@@ -446,7 +385,7 @@ public:
 
     /* Constructor to enable mixing between float and double. */
     template<typename U>
-    constexpr csr_inline
+    constexpr scl_inline
     vector(const vector<U, N>& other) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = static_cast<T>(other[i]);
@@ -456,7 +395,7 @@ public:
     /* Constructor to enable mixing between floating-point types and integer
      * types. */
     template<typename U>
-    constexpr csr_inline
+    constexpr scl_inline
     vector(const vector<U, N>& other, std::enable_if_t<
         std::is_integral<U>::value && std::is_floating_point<T>::value, 
         int> = 0) {
@@ -472,17 +411,17 @@ public:
     /* Member Functions */
     /*------------------*/
 
-    constexpr csr_inline u32 
+    constexpr scl_inline u32 
     extract_element(const u64& index) const {
         return vec_type[index];
     }
 
-    constexpr csr_inline void 
+    constexpr scl_inline void 
     insert_element(const u64& index, const T& value) {
         vec_type[index] = value;
     }
 
-    constexpr csr_inline vector& 
+    constexpr scl_inline vector& 
     set_all(const T& value) {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = value;
@@ -490,7 +429,7 @@ public:
         return *this;
     }
 
-    constexpr csr_inline vector& 
+    constexpr scl_inline vector& 
     set_zero() {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = 0;
@@ -498,7 +437,7 @@ public:
         return *this;
     }
 
-    constexpr csr_inline vector& 
+    constexpr scl_inline vector& 
     set_one() {
         for (u32 i = 0; i < N; ++i) {
             vec_type[i] = 1;
@@ -507,7 +446,7 @@ public:
     }
 
     /* Length. */
-    constexpr csr_inline T
+    constexpr scl_inline T
     length() const {
         T result = 0;
         for (u32 i = 0; i < N; ++i) {
@@ -517,7 +456,7 @@ public:
     }
 
     /* Length Squared. */
-    constexpr csr_inline T
+    constexpr scl_inline T
     length_squared() const {
         T result = 0;
         for (u32 i = 0; i < N; ++i) {
@@ -527,7 +466,7 @@ public:
     }
 
     /* Normalize. */
-    constexpr csr_inline vector&
+    constexpr scl_inline vector&
     normalize() {
         T len = length();
         for (u32 i = 0; i < N; ++i) {
@@ -541,7 +480,7 @@ public:
     /*-------------------------------*/
 
     /* Minimum Value in Vector. */
-    constexpr csr_inline T 
+    constexpr scl_inline T 
     min() const {
         T result = vec_type[0];
         for (u32 i = 1; i < N; ++i) {
@@ -553,7 +492,7 @@ public:
     }
 
     /* Maximum Value in Vector. */
-    constexpr csr_inline T 
+    constexpr scl_inline T 
     max() const {
         T result = vec_type[0];
         for (u32 i = 1; i < N; ++i) {
@@ -565,7 +504,7 @@ public:
     }
 
     /* Sum of Vector Elements. */
-    constexpr csr_inline T 
+    constexpr scl_inline T 
     horizontal_sum() const {
         T result = 0;
         for (u32 i = 0; i < N; ++i) {
@@ -575,7 +514,7 @@ public:
     }
 
     /* Average of Vector Elements. */
-    constexpr csr_inline T 
+    constexpr scl_inline T 
     avg() const {
         T result = 0;
         for (u32 i = 0; i < N; ++i) {
@@ -585,7 +524,7 @@ public:
     }
 
     /* Absolute value. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     abs() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -595,7 +534,7 @@ public:
     }
 
     /* Square root. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     sqrt() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -605,7 +544,7 @@ public:
     }
 
     /* Reciprocal square root. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     rsqrt() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -615,7 +554,7 @@ public:
     }
 
     /* Reciprocal. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     rcp() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -625,7 +564,7 @@ public:
     }
 
     /* Cube root. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     cbrt() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -635,7 +574,7 @@ public:
     }
 
     /* Exponential. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     exp() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -645,7 +584,7 @@ public:
     }
 
     /* Exponential minus one. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     expm1() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -655,7 +594,7 @@ public:
     }
 
     /* Exponential base 10. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     exp10() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -665,7 +604,7 @@ public:
     }
 
     /* Natural logarithm. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     log() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -675,7 +614,7 @@ public:
     }
 
     /* Base 10 logarithm. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     log10() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -685,7 +624,7 @@ public:
     }
 
     /* Logarithm plus one. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     log1p() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -695,7 +634,7 @@ public:
     }
 
     /* Logarithm base 2. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     log2() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -705,7 +644,7 @@ public:
     }
 
     /* Logarithm base e. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     logb() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -715,7 +654,7 @@ public:
     }
 
     /* Power. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     pow(const vector& other) const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -725,7 +664,7 @@ public:
     }
 
     /* Sine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     sin() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -735,7 +674,7 @@ public:
     }
 
     /* Cosine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     cos() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -745,7 +684,7 @@ public:
     }
 
     /* Tangent. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     tan() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -755,7 +694,7 @@ public:
     }
 
     /* Arcsine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     asin() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -765,7 +704,7 @@ public:
     }
 
     /* Arccosine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     acos() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -775,7 +714,7 @@ public:
     }
 
     /* Arctangent. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     atan() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -785,7 +724,7 @@ public:
     }
 
     /* Hyperbolic sine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     sinh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -795,7 +734,7 @@ public:
     }
 
     /* Hyperbolic cosine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     cosh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -805,7 +744,7 @@ public:
     }
 
     /* Hyperbolic tangent. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     tanh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -815,7 +754,7 @@ public:
     }
 
     /* Arc hyperbolic sine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     asinh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -825,7 +764,7 @@ public:
     }
 
     /* Arc hyperbolic cosine. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     acosh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -835,7 +774,7 @@ public:
     }
 
     /* Arc hyperbolic tangent. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     atanh() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -845,7 +784,7 @@ public:
     }
 
     /* Hypotenuse. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     hypot(const vector& other) const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -855,7 +794,7 @@ public:
     }
 
     /* Round. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     round() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -865,7 +804,7 @@ public:
     }
 
     /* Floor. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     floor() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -875,7 +814,7 @@ public:
     }
 
     /* Ceiling. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     ceil() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -885,7 +824,7 @@ public:
     }
 
     /* Truncate. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     trunc() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -895,7 +834,7 @@ public:
     }
 
     /* Sign. */
-    constexpr csr_inline vector 
+    constexpr scl_inline vector 
     sign() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -905,7 +844,7 @@ public:
     }
 
     /* Fractional part. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     fract() const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -915,7 +854,7 @@ public:
     }
 
     /* Modulus. */
-    constexpr csr_inline vector
+    constexpr scl_inline vector
     mod(const vector& other) const {
         vector result;
         for (u32 i = 0; i < N; ++i) {
@@ -935,7 +874,7 @@ public:
 
 /* Vector addition. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator+(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -946,7 +885,7 @@ operator+(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector scalar addition. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator+(const vector<T, N>& v, const T& s) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -957,7 +896,7 @@ operator+(const vector<T, N>& v, const T& s) {
 
 /* Vector scalar addition. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator+(const T& s, const vector<T, N>& v) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -968,7 +907,7 @@ operator+(const T& s, const vector<T, N>& v) {
 
 /* Vector subtraction. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator-(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -979,7 +918,7 @@ operator-(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector scalar subtraction. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator-(const vector<T, N>& v, const T& s) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -990,7 +929,7 @@ operator-(const vector<T, N>& v, const T& s) {
 
 /* Vector scalar subtraction. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator-(const T& s, const vector<T, N>& v) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1001,7 +940,7 @@ operator-(const T& s, const vector<T, N>& v) {
 
 /* Vector negation. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator-(const vector<T, N>& v) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1012,7 +951,7 @@ operator-(const vector<T, N>& v) {
 
 /* Vector multiplication. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator*(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1023,7 +962,7 @@ operator*(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector scalar multiplication. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator*(const vector<T, N>& v, const T& s) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1034,7 +973,7 @@ operator*(const vector<T, N>& v, const T& s) {
 
 /* Vector scalar multiplication. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator*(const T& s, const vector<T, N>& v) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1045,7 +984,7 @@ operator*(const T& s, const vector<T, N>& v) {
 
 /* Vector division. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator/(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1056,7 +995,7 @@ operator/(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector scalar division. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator/(const vector<T, N>& v, const T& s) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1067,7 +1006,7 @@ operator/(const vector<T, N>& v, const T& s) {
 
 /* Vector scalar division. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator/(const T& s, const vector<T, N>& v) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1078,7 +1017,7 @@ operator/(const T& s, const vector<T, N>& v) {
 
 /* Vector addition assignment. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator+=(vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         a.vec_type[i] += b.vec_type[i];
@@ -1088,7 +1027,7 @@ operator+=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector subtraction assignment. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator-=(vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         a.vec_type[i] -= b.vec_type[i];
@@ -1098,7 +1037,7 @@ operator-=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector multiplication assignment. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator*=(vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         a.vec_type[i] *= b.vec_type[i];
@@ -1108,7 +1047,7 @@ operator*=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector division assignment. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator/=(vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         a.vec_type[i] /= b.vec_type[i];
@@ -1118,7 +1057,7 @@ operator/=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector scalar division assignment. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator/=(vector<T, N>& v, const T& s) {
     for (u32 i = 0; i < N; ++i) {
         v.vec_type[i] /= s;
@@ -1132,7 +1071,7 @@ operator/=(vector<T, N>& v, const T& s) {
 
 /* Vector equality. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator==(const vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         if (a.vec_type[i] != b.vec_type[i]) {
@@ -1144,14 +1083,14 @@ operator==(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector inequality. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator!=(const vector<T, N>& a, const vector<T, N>& b) {
     return !(a == b);
 }
 
 /* Vector less than. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator<(const vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         if (a.vec_type[i] >= b.vec_type[i]) {
@@ -1163,7 +1102,7 @@ operator<(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector greater than. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator>(const vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         if (a.vec_type[i] <= b.vec_type[i]) {
@@ -1175,7 +1114,7 @@ operator>(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector less than or equal to. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator<=(const vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         if (a.vec_type[i] > b.vec_type[i]) {
@@ -1187,7 +1126,7 @@ operator<=(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector greater than or equal to. */
 template<typename T, u32 N>
-constexpr csr_inline bool
+constexpr scl_inline bool
 operator>=(const vector<T, N>& a, const vector<T, N>& b) {
     for (u32 i = 0; i < N; ++i) {
         if (a.vec_type[i] < b.vec_type[i]) {
@@ -1203,7 +1142,7 @@ operator>=(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise AND. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator&(const vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise AND requires integral type.");
@@ -1216,7 +1155,7 @@ operator&(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise OR. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator|(const vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise OR requires integral type.");
@@ -1229,7 +1168,7 @@ operator|(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise XOR. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator^(const vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise XOR requires integral type.");
@@ -1242,7 +1181,7 @@ operator^(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise AND assignment. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator&=(vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise AND assignment requires integral type.");
@@ -1254,7 +1193,7 @@ operator&=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise OR assignment. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator|=(vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise OR assignment requires integral type.");
@@ -1266,7 +1205,7 @@ operator|=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise XOR assignment. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>&
+constexpr scl_inline vector<T, N>&
 operator^=(vector<T, N>& a, const vector<T, N>& b) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise XOR assignment requires integral type.");
@@ -1278,7 +1217,7 @@ operator^=(vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector bitwise NOT. Must use integral type. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator~(const vector<T, N>& a) {
     static_assert(std::is_integral<T>::value, 
         "Vector bitwise NOT requires integral type.");
@@ -1295,7 +1234,7 @@ operator~(const vector<T, N>& a) {
 
 /* Vector logical AND. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator&&(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1306,7 +1245,7 @@ operator&&(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector logical OR. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator||(const vector<T, N>& a, const vector<T, N>& b) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1317,7 +1256,7 @@ operator||(const vector<T, N>& a, const vector<T, N>& b) {
 
 /* Vector logical NOT. */
 template<typename T, u32 N>
-constexpr csr_inline vector<T, N>
+constexpr scl_inline vector<T, N>
 operator!(const vector<T, N>& a) {
     vector<T, N> result;
     for (u32 i = 0; i < N; ++i) {
@@ -1332,7 +1271,7 @@ operator!(const vector<T, N>& a) {
 
 /* Vector output stream. */
 template<typename T, u32 N>
-constexpr csr_inline std::ostream&
+constexpr scl_inline std::ostream&
 operator<<(std::ostream& os, const vector<T, N>& v) {
     os << "{";
     for (u32 i = 0; i < N; ++i) {
@@ -1347,7 +1286,7 @@ operator<<(std::ostream& os, const vector<T, N>& v) {
 
 /* Vector input stream. */
 template<typename T, u32 N>
-constexpr csr_inline std::istream&
+constexpr scl_inline std::istream&
 operator>>(std::istream& is, vector<T, N>& v) {
     for (u32 i = 0; i < N; ++i) {
         is >> v.vec_type[i];
