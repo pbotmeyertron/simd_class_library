@@ -9,6 +9,9 @@
 #include <stdexcept>
 #include <initializer_list> 
 
+/* SIMDE Headers */
+#include "simde/simde/x86/avx512.h"
+
 namespace scl {
 
 /*============================================================================*/
@@ -115,6 +118,11 @@ public:
         }
     }
 
+    /* Constructor to convert from type vector<T, N>. */
+    vector(const vector<T, N>& other) {
+        vec_type = other.vec_type;
+    }
+
     /* Type cast operator to convert to an array. */
     operator T*() {
         return reinterpret_as<T*>(&vec_type);
@@ -125,16 +133,39 @@ public:
         return reinterpret_as<const T*>(&vec_type);
     }
 
-    /* Indexing operator for array-style addressing. */
-    T& operator[](const std::size_t& index) {
+    /* Assignment operator to convert from type vector<T, N>. */
+    vector<T, N>& operator=(const vector<T, N>& other) {
+        vec_type = other.vec_type;
+        return *this;
+    }
+
+    /* Type cast operator to convert to type vector<T, N>. */
+    operator vector<T, N>() const {
+        return vector<T, N>(*this);
+    }
+
+    /* Member function to store into array (unaligned). */
+    constexpr scl_inline void 
+    store(T* p) const {
+        for (std::size_t i = 0; i < N; ++i) {
+            p[i] = vec_type[i];
+        }
+    }
+
+    /* Member function to extract a single element from vector. */
+    constexpr scl_inline T 
+    extract_element(const std::size_t& index) const {
         if (index >= N) {
             throw std::out_of_range("Index out of range");
         }
-        return vec_type[index];
+        T arr[N];
+        store(arr);
+        return arr[index & (N - 1)];
     }
 
-    /* Const indexing operator for array-style addressing. */
-    const T& operator[](const std::size_t& index) const {
+    /* Indexing operator for array-style addressing. */
+    constexpr scl_inline T 
+    operator[](const std::size_t& index) const {
         if (index >= N) {
             throw std::out_of_range("Index out of range");
         }
@@ -145,22 +176,13 @@ public:
     /* Member Functions */
     /*------------------*/
 
-    /* Insert an element at a specified index. */
+    /* Member function to set a single element in the vector. */
     constexpr scl_inline void 
-    insert_element(const std::size_t& index, const T& value) {
+    set_element(const std::size_t& index, const T& value) {
         if (index >= N) {
             throw std::out_of_range("Index out of range");
         }
         vec_type[index] = value;
-    }
-
-    /* Extract an element at a specified index. */
-    constexpr scl_inline T 
-    extract_element(const std::size_t& index) const {
-        if (index >= N) {
-            throw std::out_of_range("Index out of range");
-        }
-        return vec_type[index];
     }
 
     /* Minimum Value in Vector. */
@@ -849,7 +871,7 @@ public:
         }
         return *this;
     }
-    
+
     /*------------------*/
     /* Stream Operators */
     /*------------------*/
@@ -881,355 +903,355 @@ public:
 /*============================================================================*/
 
 /* Returns the smaller of two vectors. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 min(const vector<T, N>& lhs, const vector<T, N>& rhs) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::min(lhs[i], rhs[i]);
+        result.set_element(i, std::min(lhs[i], rhs[i]));
     }
     return result;
 }
 
 /* Returns the larger of two vectors. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 max(const vector<T, N>& lhs, const vector<T, N>& rhs) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::max(lhs[i], rhs[i]);
+        result.set_element(i, std::max(lhs[i], rhs[i]));
     }
     return result;
 }
 
 /* Returns the absolute value of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 abs(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::abs(vec[i]);
+        result.set_element(i, std::abs(vec[i]));
     }
     return result;
 }
 
 /* Returns the square root of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 sqrt(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::sqrt(vec[i]);
+        result.set_element(i, std::sqrt(vec[i]));
     }
     return result;
 }
 
 /* Inverse square root. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 rsqrt(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = T(1) / std::sqrt(vec[i]);
+        result.set_element(i, 1.0 / std::sqrt(vec[i]));
     }
     return result;
 }
 
 /* Cube root. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 cbrt(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::cbrt(vec[i]);
+        result.set_element(i, std::cbrt(vec[i]));
     }
     return result;
 }
 
 /* Returns the sine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 sin(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::sin(vec[i]);
+        result.set_element(i, std::sin(vec[i]));
     }
     return result;
 }
 
 /* Returns the cosine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 cos(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::cos(vec[i]);
+        result.set_element(i, std::cos(vec[i]));
     }
     return result;
 }
 
 /* Returns the tangent of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 tan(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::tan(vec[i]);
+        result.set_element(i, std::tan(vec[i]));
     }
     return result;
 }
 
 /* Returns the arcsine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 asin(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::asin(vec[i]);
+        result.set_element(i, std::asin(vec[i]));
     }
     return result;
 }
 
 /* Returns the arccosine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 acos(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::acos(vec[i]);
+        result.set_element(i, std::acos(vec[i]));
     }
     return result;
 }
 
 /* Returns the arctangent of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 atan(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::atan(vec[i]);
+        result.set_element(i, std::atan(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic sine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 sinh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::sinh(vec[i]);
+        result.set_element(i, std::sinh(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic cosine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 cosh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::cosh(vec[i]);
+        result.set_element(i, std::cosh(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic tangent of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 tanh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::tanh(vec[i]);
+        result.set_element(i, std::tanh(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic arcsine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 asinh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::asinh(vec[i]);
+        result.set_element(i, std::asinh(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic arccosine of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 acosh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::acosh(vec[i]);
+        result.set_element(i, std::acosh(vec[i]));
     }
     return result;
 }
 
 /* Returns the hyperbolic arctangent of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 atanh(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::atanh(vec[i]);
+        result.set_element(i, std::atanh(vec[i]));
     }
     return result;
 }
 
 /* Returns the exponential of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 exp(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::exp(vec[i]);
+        result.set_element(i, std::exp(vec[i]));
     }
     return result;
 }
 
 /* Returns the natural logarithm of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 log(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::log(vec[i]);
+        result.set_element(i, std::log(vec[i]));
     }
     return result;
 }
 
 /* Returns the base-10 logarithm of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 log10(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::log10(vec[i]);
+        result.set_element(i, std::log10(vec[i]));
     }
     return result;
 }
 
 /* Returns the base-2 logarithm of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 log2(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::log2(vec[i]);
+        result.set_element(i, std::log2(vec[i]));
     }
     return result;
 }
 
 /* Powers a vector by a scalar. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 pow(const vector<T, N>& vec, T scalar) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::pow(vec[i], scalar);
+        result.set_element(i, std::pow(vec[i], scalar));
     }
     return result;
 }
 
 /* Powers a vector by a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 pow(const vector<T, N>& vec1, const vector<T, N>& vec2) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::pow(vec1[i], vec2[i]);
+        result.set_element(i, std::pow(vec1[i], vec2[i]));
     }
     return result;
 }
 
 /* Hypotenuse of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 hypot(const vector<T, N>& vec1, const vector<T, N>& vec2) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::hypot(vec1[i], vec2[i]);
+        result.set_element(i, std::hypot(vec1[i], vec2[i]));
     }
     return result;
 }
 
 /* Floor of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 floor(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::floor(vec[i]);
+        result.set_element(i, std::floor(vec[i]));
     }
     return result;
 }
 
 /* Ceiling of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 ceil(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::ceil(vec[i]);
+        result.set_element(i, std::ceil(vec[i]));
     }
     return result;
 }
 
 /* Truncates a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 trunc(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::trunc(vec[i]);
+        result.set_element(i, std::trunc(vec[i]));
     }
     return result;
 }
 
 /* Rounds a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 round(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::round(vec[i]);
+        result.set_element(i, std::round(vec[i]));
     }
     return result;
 }
 
 /* Returns the nearest integer to a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 nearbyint(const vector<T, N>& vec) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::nearbyint(vec[i]);
+        result.set_element(i, std::nearbyint(vec[i]));
     }
     return result;
 }
 
 /* Returns the remainder of a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 remainder(const vector<T, N>& vec1, const vector<T, N>& vec2) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::remainder(vec1[i], vec2[i]);
+        result.set_element(i, std::remainder(vec1[i], vec2[i]));
     }
     return result;
 }
 
 /* Clamp a vector. */
-template <typename T, std::size_t N>
+template<typename T, std::size_t N>
 constexpr scl_inline vector<T, N>
 clamp(const vector<T, N>& vec, 
       const vector<T, N>& min, 
       const vector<T, N>& max) {
     vector<T, N> result;
     for (std::size_t i = 0; i < N; ++i) {
-        result[i] = std::min(std::max(vec[i], min[i]), max[i]);
+        result.set_element(i, std::min(std::max(vec[i], min[i]), max[i]));
     }
     return result;
 }
