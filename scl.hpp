@@ -9,9 +9,6 @@
 #include <stdexcept>
 #include <initializer_list> 
 
-/* SIMDE Headers */
-#include "simde/simde/x86/avx512.h"
-
 namespace scl {
 
 /*============================================================================*/
