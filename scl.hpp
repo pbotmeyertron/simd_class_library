@@ -46,10 +46,6 @@ using f32 = float;
 /* 64-Bit Floating-Point Number */
 using f64 = double;
 
-/*============================================================================*/
-/* Mathematical Constants                                                     */
-/*============================================================================*/
-
 #define scl_vector_size(n) __attribute__((vector_size(n)))
 #define scl_align(n)       __attribute__((aligned(n)))
 #define scl_alias          __attribute__((may_alias))
@@ -167,6 +163,15 @@ public:
             throw std::out_of_range("Index out of range");
         }
         return vec_type[index];
+    }
+
+    /* Indexing operator for array-style addressing (non-const). */
+    constexpr scl_inline T& 
+    operator[](const std::size_t& index) {
+        if (index >= N) {
+            throw std::out_of_range("Index out of range");
+        }
+        return reinterpret_as<T*>(&vec_type)[index];
     }
 
     /*------------------*/
