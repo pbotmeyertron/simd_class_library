@@ -1,1416 +1,1310 @@
 #pragma once
 
-/* Standard Headers */
-#include <cstdint>
-#include <iostream>
+/*============================================================================*/
+/*============================================================================*/
+/*============================================================================*/
+/*                                                                            */
+/*----------------------------------------------------------------------------*/
+/* SIMD Class Library                                                         */
+/*----------------------------------------------------------------------------*/
+/*                                                                            */
+/*============================================================================*/
+/*============================================================================*/
+/*============================================================================*/
+
+/* Standard Includes */
+#include <string>
 #include <cstring>
+#include <iostream>
+#include <array>
 #include <cmath>
-#include <type_traits>
-#include <stdexcept>
-#include <initializer_list> 
 
 namespace scl {
 
-/*============================================================================*/
-/* Signed Integer Types                                                       */
-/*============================================================================*/
-
-/* Signed 8-Bit Integer */
-using i8  = std::int8_t;
-/* Signed 16-Bit Integer */
-using i16 = std::int16_t;
-/* Signed 32-Bit Integer */
-using i32 = std::int32_t;
-/* Signed 64-Bit Integer */
-using i64 = std::int64_t;
-
-/*============================================================================*/
-/* Unsigned Integer Types                                                     */ 
-/*============================================================================*/
-
-/* Unsigned 8-Bit Integer */
-using u8  = std::uint8_t;
-/* Unsigned 16-Bit Integer */
-using u16 = std::uint16_t;
-/* Unsigned 32-Bit Integer */
-using u32 = std::uint32_t;
-/* Unsigned 64-Bit Integer */
-using u64 = std::uint64_t;
-
-/*============================================================================*/
-/* Floating-Point Types                                                       */
-/*============================================================================*/
-
-/* 32-Bit Floating-Point Number */
-using f32 = float;
-/* 64-Bit Floating-Point Number */
-using f64 = double;
-
-#define scl_vector_size(n) __attribute__((vector_size(n)))
-#define scl_align(n)       __attribute__((aligned(n)))
-#define scl_alias          __attribute__((may_alias))
-
-#if defined(__clang__)
-    #define scl_inline __attribute__((always_inline))
-#elif defined(__GNUC__)
-    #define scl_inline __attribute__((always_inline))
-#elif defined(_MSC_VER)
-    #define scl_inline __forceinline
-#endif
-
-/* Used to produce correct alignment for vectors. */
-constexpr scl_inline uint32_t 
-next_power_of_two(uint32_t x) {
-    x--;
-    x |= x >> 1;
-    x |= x >> 2;
-    x |= x >> 4;
-    x |= x >> 8;
-    x |= x >> 16;
-    x++;
-    return x;
-}
-
-/* Reinterprets a value as a different type. Better than reinterpret_cast<> */
-template<typename T, typename S>
-constexpr static inline T 
-reinterpret_as(const S& s) {
-    static_assert(sizeof(T) == sizeof(S));
-    T d;
-    std::memcpy(&d, &s, sizeof(T));
-    return d;
-}
-
-template<typename T, std::size_t N>
-class vector {
+template <typename T, std::size_t N>
+class simd {
 public:
-    #if defined(__clang__) || defined(__GNUC__)
-        scl_align(next_power_of_two(N * sizeof(T))) 
-        scl_vector_size(next_power_of_two(N * sizeof(T)))  T vec_type;
-    #elif defined(_MSC_VER)
-        alignas(next_power_of_two(N * sizeof(T))) T vec_type[N];
+
+    static_assert(std::is_arithmetic<T>::value, 
+                  "simd<T, N> requires arithmetic types");
+
+    static_assert(N > 0, 
+                  "simd<T, N> size N must be greater than zero");
+
+public:
+
+    using value_type        = T;
+
+    using mask_element_type = 
+    typename std::conditional<std::is_integral<T>::value,
+             T, 
+             std::int32_t>::type;
+
+    #if defined(__clang__)
+        using vector_type = T __attribute__((vector_size(sizeof(T) * N)));
+        vector_type data;
+    #else
+        std::array<T, N> data;
     #endif
+
 public:
 
-    /* Default constructor. */
-    vector() = default;
+    /*------------------------------------------*/
+    /* Nested Mask Class for Logical Operations */
+    /*------------------------------------------*/
 
-    /* Variadic constructor. */
-    template<typename... Args, 
-             typename std::enable_if<sizeof...(Args) == N, int>::type = 0>
-    vector(Args... args) {
-        static_assert(std::conjunction<std::is_same<T, Args>...>::value, 
-                "All arguments must be of the same type as T");
-        vec_type = { static_cast<T>(args)... };
-    }
+    class mask_type {
+    public:
 
-    /* Constructor to broadcast the same value into all elements. */
-    vector(const T& value) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] = value;
+        using element_type = mask_element_type;
+
+        #if defined(__clang__)
+            using vector_type = 
+            element_type __attribute__((vector_size(sizeof(element_type) * N)));
+
+            vector_type data;
+        #else
+            std::array<element_type, N> data;
+        #endif
+
+    public:
+
+        /*--------------*/
+        /* Constructors */
+        /*--------------*/
+
+        mask_type() = default;
+
+        #if defined(__clang__)
+            mask_type(const vector_type& v) : data(v) {}
+        #else
+            mask_type(const std::array<element_type, N>& arr) : data(arr) {}
+        #endif
+
+        /*----------------------*/
+        /* Assignment Operators */
+        /*----------------------*/
+
+        #if defined(__clang__)
+            constexpr mask_type& 
+            operator=(const vector_type& v) {
+                data = v;
+                return *this;
+            }
+        #else
+            constexpr mask_type& 
+            operator=(const std::array<element_type, N>& arr) {
+                data = arr;
+                return *this;
+            }
+        #endif
+
+        /*--------------------*/
+        /* Indexing Operators */
+        /*--------------------*/
+
+        constexpr element_type 
+        operator[](std::size_t idx) const {
+            #if defined(__clang__)
+                return data[idx];
+            #else
+                return data.at(idx);
+            #endif
         }
+
+        explicit 
+        operator bool() const {
+            for (std::size_t i = 0; i < N; ++i) {
+                #if defined(__clang__)
+                    if (data[i]) return true;
+                #else
+                    if (data.at(i)) return true;
+                #endif
+            }
+            return false;
+        }
+
+        /*-------------------*/
+        /* Logical Operators */
+        /*-------------------*/
+
+        mask_type 
+        operator~() const {
+            #if defined(__clang__)
+                return mask_type{~data};
+            #else
+                std::array<element_type, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = ~data[i];
+                }
+                return mask_type{result};
+            #endif
+        }
+
+        mask_type 
+        operator&(const mask_type& rhs) const {
+            #if defined(__clang__)
+                return mask_type{data & rhs.data};
+            #else
+                std::array<element_type, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = data[i] & rhs.data[i];
+                }
+                return mask_type{result};
+            #endif
+        }
+
+        mask_type 
+        operator|(const mask_type& rhs) const {
+            #if defined(__clang__)
+                return mask_type{data | rhs.data};
+            #else
+                std::array<element_type, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = data[i] | rhs.data[i];
+                }
+                return mask_type{result};
+            #endif
+        }
+
+        mask_type 
+        operator^(const mask_type& rhs) const {
+            #if defined(__clang__)
+                return mask_type{data ^ rhs.data};
+            #else
+                std::array<element_type, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = data[i] ^ rhs.data[i];
+                }
+                return mask_type{result};
+            #endif
+        }
+
+        mask_type& 
+        operator&=(const mask_type& rhs) {
+            #if defined(__clang__)
+                data &= rhs.data;
+            #else
+                for (std::size_t i = 0; i < N; ++i) {
+                     data[i] &= rhs.data[i];
+                }
+            #endif
+            return *this;
+        }
+
+        mask_type& 
+        operator|=(const mask_type& rhs) {
+            #if defined(__clang__)
+                data |= rhs.data;
+            #else
+                for (std::size_t i = 0; i < N; ++i) {
+                     data[i] |= rhs.data[i];
+                }
+            #endif
+            return *this;
+        }
+
+        mask_type& operator^=(const mask_type& rhs) {
+            #if defined(__clang__)
+                data ^= rhs.data;
+            #else
+                for (std::size_t i = 0; i < N; ++i) {
+                     data[i] ^= rhs.data[i];
+                }
+            #endif
+            return *this;
+        }
+
+        friend std::ostream& 
+        operator<<(std::ostream& os, const mask_type& mask) {
+            os << "{ ";
+            for (std::size_t i = 0; i < N; ++i) {
+                #if defined(__clang__)
+                    os << mask.data[i];
+                #else
+                   os << mask.data.at(i);
+                #endif
+                   if (i < N - 1) os << ", ";
+            }
+            os << " }";
+            return os;
+        }
+
+    }; // end of mask_type
+
+public:
+
+    /*--------------*/
+    /* Constructors */
+    /*--------------*/
+
+    simd() = default;
+
+    /* Initialize all elements with a scalar value. */
+    explicit simd(T scalar) {
+        #if defined(__clang__)
+            data = vector_type{};
+            data += scalar;
+        #else
+            data.fill(scalar);
+        #endif
     }
 
-    /* Constructor to convert from type vector<T, N>. */
-    vector(const vector<T, N>& other) {
-        vec_type = other.vec_type;
+    /* Construct with a vector type. */
+    #if defined(__clang__)
+        simd(const vector_type& vec) : data(vec) {}
+    #else
+        simd(const std::array<T, N>& arr) : data(arr) {}
+    #endif
+
+    /* Construct with an initializer list. */
+    explicit 
+    simd(std::initializer_list<T> init) {
+        #if defined(__clang__)
+            data = vector_type{};
+        #endif
+            std::size_t i = 0;
+            for (auto it = init.begin(); it != init.end() && i < N; ++it, ++i) {
+                 data[i] = *it;
+            }
     }
 
-    /* Type cast operator to convert to an array. */
-    operator T*() {
-        return reinterpret_as<T*>(&vec_type);
+    /* Construct with an array. */
+    template <std::size_t M>
+    explicit 
+    simd(const std::array<T, M>& arr) {
+        #if defined(__clang__)
+            data = vector_type{};
+        #endif
+            std::size_t i = 0;
+            for (auto it = arr.begin(); it != arr.end() && i < N; ++it, ++i) {
+                 data[i] = *it;
+            }
     }
 
-    /* Type cast operator to convert to a const array. */
-    operator const T*() const {
-        return reinterpret_as<const T*>(&vec_type);
+    /*-----------------------------*/
+    /* Type Conversion Constructor */
+    /*-----------------------------*/
+
+    explicit 
+    operator bool() const {
+        for (std::size_t i = 0; i < N; ++i) {
+            #if defined(__clang__)
+                if (data[i]) return true;
+            #else
+                if (data.at(i)) return true;
+            #endif
+        }
+        return false;
     }
 
-    /* Assignment operator to convert from type vector<T, N>. */
-    vector<T, N>& operator=(const vector<T, N>& other) {
-        vec_type = other.vec_type;
+    /*----------------------*/
+    /* Assignment Operators */
+    /*----------------------*/
+
+    simd& 
+    operator=(const simd& rhs) {
+        data = rhs.data;
         return *this;
     }
 
-    /* Type cast operator to convert to type vector<T, N>. */
-    operator vector<T, N>() const {
-        return vector<T, N>(*this);
+    simd& 
+    operator=(T scalar) {
+        #if defined(__clang__)
+            data = vector_type{};
+            data += scalar;
+        #else
+            data.fill(scalar);
+        #endif
+        return *this;
     }
 
-    /* Member function to store into array (unaligned). */
-    constexpr scl_inline void 
-    store(T* p) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            p[i] = vec_type[i];
-        }
-    }
-
-    /* Member function to extract a single element from vector. */
-    constexpr scl_inline T 
-    extract_element(const std::size_t& index) const {
-        if (index >= N) {
-            throw std::out_of_range("Index out of range");
-        }
-        T arr[N];
-        store(arr);
-        return arr[index & (N - 1)];
-    }
-
-    /* Indexing operator for array-style addressing. */
-    constexpr scl_inline T 
-    operator[](const std::size_t& index) const {
-        if (index >= N) {
-            throw std::out_of_range("Index out of range");
-        }
-        return vec_type[index];
-    }
-
-    /* Indexing operator for array-style addressing (non-const). */
-    constexpr scl_inline T& 
-    operator[](const std::size_t& index) {
-        if (index >= N) {
-            throw std::out_of_range("Index out of range");
-        }
-        return reinterpret_as<T*>(&vec_type)[index];
-    }
-
-    /*------------------*/
-    /* Member Functions */
-    /*------------------*/
-
-    /* Member function to set a single element in the vector. */
-    constexpr scl_inline void 
-    set_element(const std::size_t& index, const T& value) {
-        if (index >= N) {
-            throw std::out_of_range("Index out of range");
-        }
-        vec_type[index] = value;
-    }
-
-    /* Minimum Value in Vector. */
-    constexpr scl_inline T
-    min() const {
-        T result = vec_type[0];
-        for (std::size_t i = 1; i < N; ++i) {
-            if (vec_type[i] < result) {
-                result = vec_type[i];
+    simd& 
+    operator=(std::initializer_list<T> init) {
+        #if defined(__clang__)
+            data = vector_type{};
+        #else
+            data.fill(T{});
+        #endif
+            std::size_t i = 0;
+            for (auto it = init.begin(); it != init.end() && i < N; ++it, ++i) {
+                 data[i] = *it;
             }
-        }
-        return result;
+            return *this;
     }
 
-    /* Maximum Value in Vector. */
-    constexpr scl_inline T
-    max() const {
-        T result = vec_type[0];
-        for (std::size_t i = 1; i < N; ++i) {
-            if (vec_type[i] > result) {
-                result = vec_type[i];
+    template<std::size_t M>
+    simd& 
+    operator=(const std::array<T, M>& arr) {
+        #if defined(__clang__)
+            data = vector_type{};
+        #else
+            data.fill(T{});
+        #endif
+            std::size_t i = 0;
+            for (auto it = arr.begin(); it != arr.end() && i < N; ++it, ++i) {
+                 data[i] = *it;
             }
-        }
-        return result;
+            return *this;
     }
 
-    /* Sum of All Elements in Vector. */
-    constexpr scl_inline T
-    horizontal_sum() const {
-        T result = vec_type[0];
-        for (std::size_t i = 1; i < N; ++i) {
-            result += vec_type[i];
-        }
-        return result;
+    /*--------------------*/
+    /* Indexing Operators */
+    /*--------------------*/
+
+    T 
+    operator[](std::size_t idx) const {
+        #if defined(__clang__)
+            return data[idx];
+        #else
+            return data.at(idx);
+        #endif
     }
 
-    /* Product of All Elements in Vector. */
-    constexpr scl_inline T
-    horizontal_product() const {
-        T result = vec_type[0];
-        for (std::size_t i = 1; i < N; ++i) {
-            result *= vec_type[i];
-        }
-        return result;
+    T& 
+    operator[](std::size_t idx) {
+        #if defined(__clang__)
+            /* Union to access elements of vector type. */
+            union {
+                vector_type v;
+                T           e[N];
+            } u;
+
+            static T temp;
+                   u.v      = data;
+                   temp     = u.e[idx];
+                   u.e[idx] = temp;
+                   data = u.v;
+            return temp;
+        #else
+            return data.at(idx);
+        #endif
     }
 
-    /* Average of All Elements in Vector. */
-    constexpr scl_inline T
-    horizontal_average() const {
-        return horizontal_sum() / N;
+    constexpr void 
+    load(const T* ptr) {
+        #if defined(__clang__)
+            std::memcpy(&data, ptr, sizeof(vector_type));
+        #else
+            std::memcpy(data.data(), ptr, sizeof(T) * N);
+        #endif
     }
 
-    /*------------------------*/
-    /* Mathematical Functions */
-    /*------------------------*/
+    constexpr void 
+    store(T* ptr) const {
+        #if defined(__clang__)
+            std::memcpy(ptr, &data, sizeof(vector_type));
+        #else
+            std::memcpy(ptr, data.data(), sizeof(T) * N);
+        #endif
+    }
 
-    /* Absolute Value. */
-    constexpr scl_inline vector
-    abs() const {
-        vector result;
+    constexpr void 
+    store_reverse(T* ptr) const {
         for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::abs(vec_type[i]);
+            #if defined(__clang__)
+                ptr[N - 1 - i] = data[i];
+            #else
+                ptr[N - 1 - i] = data.at(i);
+            #endif
         }
-        return result;
     }
 
-    /* Square Root. */
-    constexpr scl_inline vector
-    sqrt() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::sqrt(vec_type[i]);
-        }
-        return result;
+    /*------------------------------------------------------*/
+    /* Arithmetic Unary and Arithmetic Assignment Operators */
+    /*------------------------------------------------------*/
+
+    /* Negate all elements. */
+    simd 
+    operator-() const {
+        #if defined(__clang__)
+            return simd(-data);
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = -data[i];
+            }
+            return simd(result);
+        #endif
     }
 
-    /* Reciprocal Square Root. */
-    constexpr scl_inline vector
-    rsqrt() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = 1.0 / std::sqrt(vec_type[i]);
-        }
-        return result;
+    /* Ensure that the vector is positive. */
+    simd 
+    operator+() const { 
+        return *this; 
     }
 
-    /* Cube Root. */
-    constexpr scl_inline vector
-    cbrt() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::cbrt(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator+=(const T& rhs) {
+        #if defined(__clang__)
+            data += vector_type { rhs };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] += rhs;
+            }
+        #endif
+        return *this;
     }
 
-    /* Reciprocal. */
-    constexpr scl_inline vector
-    reciprocal() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = 1.0 / vec_type[i];
-        }
-        return result;
+    simd& 
+    operator-=(const T& rhs) {
+        #if defined(__clang__)
+            data -= vector_type { rhs };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] -= rhs;
+            }
+        #endif
+        return *this;
     }
 
-    /* Exponential. */
-    constexpr scl_inline vector
-    exp() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::exp(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator*=(const T& rhs) {
+        #if defined(__clang__)
+            data *= vector_type { rhs };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] *= rhs;
+            }
+        #endif
+        return *this;
     }
 
-    /* Natural Logarithm. */
-    constexpr scl_inline vector
-    log() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::log(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator/=(const T& rhs) {
+        #if defined(__clang__)
+            data /= vector_type { rhs };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] /= rhs;
+            }
+        #endif
+        return *this;
     }
 
-    /* Base 10 Logarithm. */
-    constexpr scl_inline vector
-    log10() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::log10(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator+=(const simd& rhs) {
+        #if defined(__clang__)
+            data += rhs.data;
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] += rhs.data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Sine. */
-    constexpr scl_inline vector
-    sin() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::sin(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator-=(const simd& rhs) {
+        #if defined(__clang__)
+            data -= rhs.data;
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] -= rhs.data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Cosine. */
-    constexpr scl_inline vector
-    cos() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::cos(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator*=(const simd& rhs) {
+        #if defined(__clang__)
+            data *= rhs.data;
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] *= rhs.data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Tangent. */
-    constexpr scl_inline vector
-    tan() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::tan(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator/=(const simd& rhs) {
+        #if defined(__clang__)
+            data /= rhs.data;
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 data[i] /= rhs.data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Arcsine. */
-    constexpr scl_inline vector
-    asin() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::asin(vec_type[i]);
-        }
-        return result;
+    simd& 
+    operator++() {
+        #if defined(__clang__)
+            for (std::size_t i = 0; i < N; ++i) {
+                data[i] += T(1);
+            }
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                ++data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Arccosine. */
-    constexpr scl_inline vector
-    acos() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::acos(vec_type[i]);
-        }
-        return result;
+    simd 
+    operator++(std::int32_t) {
+        simd temp = *this;
+        #if defined(__clang__)
+            data += vector_type { T(1) };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 ++data[i];
+            }
+        #endif
+        return temp;
     }
 
-    /* Arctangent. */
-    constexpr scl_inline vector
-    atan() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::atan(vec_type[i]);
-        }
-        return result;
+    simd& operator--() {
+        #if defined(__clang__)
+            for (std::size_t i = 0; i < N; ++i) {
+                data[i] -= T(1);
+            }
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                --data[i];
+            }
+        #endif
+        return *this;
     }
 
-    /* Hyperbolic Sine. */
-    constexpr scl_inline vector
-    sinh() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::sinh(vec_type[i]);
-        }
-        return result;
+    simd 
+    operator--(std::int32_t) {
+        simd temp = *this;
+        #if defined(__clang__)
+            data -= vector_type { T(1) };
+        #else
+            for (std::size_t i = 0; i < N; ++i) {
+                 --data[i];
+            }
+        #endif
+        return temp;
     }
 
-    /* Hyperbolic Cosine. */
-    constexpr scl_inline vector
-    cosh() const {
-        vector result;
+    friend std::ostream& 
+    operator<<(std::ostream& os, const simd& v) {
+        os << "{ ";
         for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::cosh(vec_type[i]);
+            #if defined(__clang__)
+                os << v.data[i];
+            #else
+                os << v.data.at(i);
+            #endif
+            if (i < N - 1) os << ", ";
         }
-        return result;
-    }
-
-    /* Hyperbolic Tangent. */
-    constexpr scl_inline vector
-    tanh() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::tanh(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Hyperbolic Arcsine. */
-    constexpr scl_inline vector
-    asinh() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::asinh(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Hyperbolic Arccosine. */
-    constexpr scl_inline vector
-    acosh() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::acosh(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Hyperbolic Arctangent. */
-    constexpr scl_inline vector
-    atanh() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::atanh(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Power. */
-    constexpr scl_inline vector
-    pow(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::pow(vec_type[i], rhs.vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Round to nearest integer. */
-    constexpr scl_inline vector
-    round() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::round(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Round to nearest integer, rounding up. */
-    constexpr scl_inline vector
-    ceil() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::ceil(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Round to nearest integer, rounding down. */
-    constexpr scl_inline vector
-    floor() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::floor(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Truncate to nearest integer. */
-    constexpr scl_inline vector
-    trunc() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = std::trunc(vec_type[i]);
-        }
-        return result;
-    }
-
-    /* Sign. */
-    constexpr scl_inline vector
-    sign() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = (vec_type[i] > 0) - (vec_type[i] < 0);
-        }
-        return result;
+        os << " }";
+        return os;
     }
 
     /*----------------------*/
     /* Arithmetic Operators */
     /*----------------------*/
 
-    constexpr scl_inline vector 
-    operator+(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] + rhs.vec_type[i];
-        }
-        return result;
-    }
-    
-    constexpr scl_inline vector& 
-    operator+=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] += rhs.vec_type[i];
-        }
-        return *this;
+    friend simd 
+    operator+(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data + rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] + rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector
-    operator+(const T& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] + rhs;
-        }
-        return result;
+    friend simd 
+    operator+(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data + vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] + rhs;
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector&
-    operator+=(const T& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] += rhs;
-        }
-        return *this;
+    friend simd 
+    operator+(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } + rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs + rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector 
-    operator-(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] - rhs.vec_type[i];
-        }
-        return result;
+    friend simd 
+    operator-(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data - rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] - rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector& 
-    operator-=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] -= rhs.vec_type[i];
-        }
-        return *this;
+    friend simd 
+    operator-(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data - vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] - rhs;
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector
-    operator-(const T& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] - rhs;
-        }
-        return result;
+    friend simd 
+    operator-(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } - rhs.data};
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs - rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector&
-    operator-=(const T& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] -= rhs;
-        }
-        return *this;
+    friend simd 
+    operator*(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data * rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] * rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    /* Negation */
-    constexpr scl_inline vector
-    operator-() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = -vec_type[i];
-        }
-        return result;
+    friend simd 
+    operator*(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data * vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] * rhs;
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector 
-    operator*(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] * rhs.vec_type[i];
-        }
-        return result;
+    friend simd 
+    operator*(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } * rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs * rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector
-    operator*(const T& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] * rhs;
-        }
-        return result;
+    friend simd 
+    operator/(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data / rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] / rhs.data[i];
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector& 
-    operator*=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] *= rhs.vec_type[i];
-        }
-        return *this;
+    friend simd 
+    operator/(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data / vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] / rhs;
+            }
+            return simd { result };
+        #endif
     }
 
-    constexpr scl_inline vector&
-    operator*=(const T& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] *= rhs;
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector 
-    operator/(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] / rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector
-    operator/(const T& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] / rhs;
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector& 
-    operator/=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] /= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector&
-    operator/=(const T& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] /= rhs;
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector
-    operator%(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] % rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector
-    operator%(const T& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] % rhs;
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator%=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] %= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector&
-    operator%=(const T& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] %= rhs;
-        }
-        return *this;
+    friend simd 
+    operator/(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } / rhs.data };
+        #else
+                std::array<T, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = lhs / rhs.data[i];
+                }
+                return simd { result };
+        #endif
     }
 
     /*----------------------*/
     /* Comparison Operators */
     /*----------------------*/
+
+    friend mask_type 
+    operator==(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data == rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] == rhs.data[i]           ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
     
-    constexpr scl_inline bool 
-    operator==(const vector& rhs) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i] != rhs.vec_type[i]) {
-                return false;
+    friend mask_type 
+    operator==(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data == vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] == rhs                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
-
-    constexpr scl_inline bool 
-    operator!=(const vector& rhs) const {
-        return !(*this == rhs);
-    }
-
-    constexpr scl_inline bool
-    operator<(const vector& rhs) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i] >= rhs.vec_type[i]) {
-                return false;
+    
+    friend mask_type 
+    operator==(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } == rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs == rhs.data[i]                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
-
-    constexpr scl_inline bool
-    operator<=(const vector& rhs) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i] > rhs.vec_type[i]) {
-                return false;
+    
+    friend mask_type 
+    operator!=(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data != rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] != rhs.data[i]           ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
-
-    constexpr scl_inline bool
-    operator>(const vector& rhs) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i] <= rhs.vec_type[i]) {
-                return false;
+    
+    friend mask_type 
+    operator!=(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data != vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] != rhs                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
-
-    constexpr scl_inline bool
-    operator>=(const vector& rhs) const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i] < rhs.vec_type[i]) {
-                return false;
+    
+    friend mask_type 
+    operator!=(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } != rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs != rhs.data[i]                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
 
-    constexpr scl_inline vector
-    operator&&(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] && rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector
-    operator||(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] || rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline bool
-    operator!() const {
-        for (std::size_t i = 0; i < N; ++i) {
-            if (vec_type[i]) {
-                return false;
+    friend mask_type 
+    operator<(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data < rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] < rhs.data[i]            ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
             }
-        }
-        return true;
+            return mask_type(result);
+        #endif
     }
+    
+    friend mask_type 
+    operator<(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data < vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] < rhs                    ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator<(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } < rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs < rhs.data[i]                    ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data > rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] > rhs.data[i]            ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data > vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] > rhs                    ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } > rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs > rhs.data[i]                    ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator<=(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data <= rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] <= rhs.data[i]           ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator<=(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data <= vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] <= rhs                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator<=(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } <= rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs <= rhs.data[i]                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>=(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data >= rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] >= rhs.data[i]           ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>=(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return mask_type { lhs.data >= vector_type { rhs } };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] >= rhs                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }
+    
+    friend mask_type 
+    operator>=(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return mask_type { vector_type { lhs } >= rhs.data };
+        #else
+            std::array<typename mask_type::element_type, N> result{};
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs >= rhs.data[i]                   ? 
+                             typename mask_type::element_type(~0) : 
+                             typename mask_type::element_type(0);
+            }
+            return mask_type(result);
+        #endif
+    }    
 
     /*-------------------*/
     /* Bitwise Operators */
     /*-------------------*/
 
-    constexpr scl_inline vector
-    operator&(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] & rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator&=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] &= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector
-    operator|(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] | rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator|=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] |= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector
-    operator^(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] ^ rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator^=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] ^= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector
-    operator~() const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = ~vec_type[i];
-        }
-        return result;
-    }
-
-    /*-------------------*/
-    /* Shift Operators   */
-    /*-------------------*/
-
-    constexpr scl_inline vector
-    operator<<(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] << rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator<<=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] <<= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    constexpr scl_inline vector
-    operator>>(const vector& rhs) const {
-        vector result;
-        for (std::size_t i = 0; i < N; ++i) {
-            result.vec_type[i] = vec_type[i] >> rhs.vec_type[i];
-        }
-        return result;
-    }
-
-    constexpr scl_inline vector&
-    operator>>=(const vector& rhs) {
-        for (std::size_t i = 0; i < N; ++i) {
-            vec_type[i] >>= rhs.vec_type[i];
-        }
-        return *this;
-    }
-
-    /*------------------*/
-    /* Stream Operators */
-    /*------------------*/
-
-    friend std::ostream&
-    operator<<(std::ostream& os, const vector& vec) {
-        os << "{";
-        for (std::size_t i = 0; i < N; ++i) {
-            os << vec.vec_type[i];
-            if (i != N - 1) {
-                os << ", ";
+    friend simd
+    operator<<(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data << rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] << rhs.data[i];
             }
-        }
-        os << "}";
-        return os;
+            return simd { result };
+        #endif
     }
 
-    friend std::istream&
-    operator>>(std::istream& is, vector& vec) {
-        for (std::size_t i = 0; i < N; ++i) {
-            is >> vec.vec_type[i];
+    friend simd 
+    operator<<(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data << vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                result[i] = lhs.data[i] << rhs;
+            }
+            return simd { result };
+        #endif
+    }
+
+    friend simd 
+    operator<<(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } << rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs << rhs.data[i];
+            }
+            return simd { result };
+        #endif
+    }
+
+    friend simd 
+    operator>>(const simd& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data >> rhs.data };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] >> rhs.data[i];
+            }
+            return simd { result };
+        #endif
+    }
+
+    friend simd 
+    operator>>(const simd& lhs, const T& rhs) {
+        #if defined(__clang__)
+            return simd { lhs.data >> vector_type { rhs } };
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = lhs.data[i] >> rhs;
+            }
+            return simd { result };
+        #endif
+    }
+
+    friend simd 
+    operator>>(const T& lhs, const simd& rhs) {
+        #if defined(__clang__)
+            return simd { vector_type { lhs } >> rhs.data };
+        #else
+                std::array<T, N> result;
+                for (std::size_t i = 0; i < N; ++i) {
+                     result[i] = lhs >> rhs.data[i];
+                }
+                return simd { result };
+        #endif
+    }
+
+    /*-------------------*/
+    /* Utility Functions */
+    /*-------------------*/
+
+    constexpr T 
+    horizontal_sum() const {
+        T result = data[0];
+        for (std::size_t i = 1; i < N; ++i) {
+             result += data[i];
         }
-        return is;
+        return result;
+    }
+
+    constexpr T 
+    horizontal_product() const {
+        T result = data[0];
+        for (std::size_t i = 1; i < N; ++i) {
+             result *= data[i];
+        }
+        return result;
+    }
+
+    /* Dot product of two vectors. */
+    constexpr T 
+    dot_product(const simd& lhs, const simd& rhs) {
+        return (lhs * rhs).horizontal_sum();
+    }
+
+    constexpr simd 
+    incremental_sequence() {
+        #if defined(__clang__)
+            simd result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result.data[i] = static_cast<T>(i);
+            }
+            return result;
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = static_cast<T>(i);
+            }
+            return simd { result };
+        #endif
+    }
+
+    constexpr simd 
+    incremental_sequence_reversed() {
+        #if defined(__clang__)
+            simd result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result.data[i] = static_cast<T>(N - 1 - i);
+            }
+            return result;
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = static_cast<T>(N - 1 - i);
+            }
+            return simd { result };
+        #endif
     }
 };
 
-/*============================================================================*/
-/* Non-Member Mathematical Functions                                          */
-/*============================================================================*/
+/*-------------------------------------------------*/
+/* Selection, Blending, Permutation, and Swizzling */
+/*-------------------------------------------------*/
 
-/* Returns the smaller of two vectors. */
+/* Cut off vector to n elements. The last elements are set to zero. */
 template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-min(const vector<T, N>& lhs, const vector<T, N>& rhs) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::min(lhs[i], rhs[i]));
-    }
-    return result;
+constexpr static inline simd<T, N>
+cutoff(const simd<T, N>& vector, std::size_t n) {
+    #if defined(__clang__)
+        simd<T, N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result.data[i] = (i < n) ? vector.data[i] : T(0);
+        }
+        return result;
+    #else
+        std::array<T, N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result[i] = (i < n) ? vector.data[i] : T(0);
+        }
+        return simd<T, N> { result };
+    #endif
 }
 
-/* Returns the larger of two vectors. */
+/* Select between two simd vectors, element by element, based on mask */
 template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-max(const vector<T, N>& lhs, const vector<T, N>& rhs) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::max(lhs[i], rhs[i]));
-    }
-    return result;
+constexpr static inline simd<T, N>
+select(const typename simd<T, N>::mask_type& mask, 
+       const          simd<T, N>&            a, 
+       const          simd<T, N>&            b) {
+    #if defined(__clang__)
+        simd<T, N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result.data[i] = mask.data[i] ? a.data[i] : b.data[i];
+        }
+        return result;
+    #else
+        std::array<T, N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result[i] = mask.data[i] ? a.data[i] : b.data[i];
+        }
+        return simd<T, N> { result };
+    #endif
 }
 
-/* Returns the absolute value of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-abs(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::abs(vec[i]));
-    }
-    return result;
+/* Blend two vectors according to immediate constant mask */
+template<std::size_t... I, typename T, std::size_t N>
+constexpr static inline simd<T, N>
+blend(const simd<T, N>& a, const simd<T, N>& b) {
+    #if defined(__clang__)
+        simd<T, N> result;
+        constexpr bool mask[N] = { ((I < N) ? true : false)... };
+        for (std::size_t i = 0; i < N; ++i) {
+             result.data[i] = mask[i] ? a.data[i] : b.data[i];
+        }
+        return result;
+    #else
+        std::array<T, N> result;
+        constexpr bool mask[N] = { ((I < N) ? true : false)... };
+        for (std::size_t i = 0; i < N; ++i) {
+             result[i] = mask[i] ? a.data[i] : b.data[i];
+        }
+        return simd<T, N> { result };
+    #endif
 }
 
-/* Returns the square root of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-sqrt(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::sqrt(vec[i]));
-    }
-    return result;
+/* Permute elements in simd vector according to immediate indices */
+template<std::size_t... I, typename T, std::size_t N>
+constexpr static inline simd<T, sizeof...(I)>
+permute(const simd<T, N>& vector) {
+    static_assert(sizeof...(I) <= N, "Too many indices for simd vector size");
+    
+    #if defined(__clang__)
+        using result_type = simd<T, sizeof...(I)>;
+        typename result_type::vector_type result;
+        constexpr std::size_t indices[] = { I... };
+        for (std::size_t i = 0; i < sizeof...(I); ++i) {
+             result[i] = vector.data[indices[i]];
+        }
+        return result_type { result };
+    #else
+        std::array<T, sizeof...(I)> result;
+        constexpr std::size_t indices[] = { I... };
+        for (std::size_t i = 0; i < sizeof...(I); ++i) {
+             result[i] = vector.data[indices[i]];
+        }
+        return simd<T, sizeof...(I)> { result };
+    #endif
 }
 
-/* Inverse square root. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-rsqrt(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, 1.0 / std::sqrt(vec[i]));
-    }
-    return result;
+/* Shuffle elements from two vectors according to immediate indices */
+template<std::size_t... I, typename T, std::size_t N>
+constexpr static inline simd<T, sizeof...(I)>
+shuffle(const simd<T, N>& a, const simd<T, N>& b) {
+    static_assert(sizeof...(I) <= 2*N, "Too many indices for simd vector size");
+    
+    #if defined(__clang__)
+        using result_type = simd<T, sizeof...(I)>;
+        typename result_type::vector_type result;
+        constexpr std::size_t indices[] = { I... };
+        for (std::size_t i = 0; i < sizeof...(I); ++i) {
+            if (indices[i] < N) {
+                result[i] = a.data[indices[i]];
+            } else {
+                result[i] = b.data[indices[i] - N];
+            }
+        }
+        return result_type{result};
+    #else
+        std::array<T, sizeof...(I)> result;
+        constexpr std::size_t indices[] = { I... };
+        for (std::size_t i = 0; i < sizeof...(I); ++i) {
+            if (indices[i] < N) {
+                result[i] = a.data[indices[i]];
+            } else {
+                result[i] = b.data[indices[i] - N];
+            }
+        }
+        return simd<T, sizeof...(I)> { result };
+    #endif
 }
 
-/* Cube root. */
+/* Swap two simd vectors */
 template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-cbrt(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::cbrt(vec[i]));
-    }
-    return result;
+constexpr static inline void
+swap(simd<T, N>& a, simd<T, N>& b) {
+    simd<T, N> temp = a;
+               a    = b;
+               b    = temp;
 }
-
-/* Returns the sine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-sin(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::sin(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the cosine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-cos(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::cos(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the tangent of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-tan(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::tan(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the arcsine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-asin(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::asin(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the arccosine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-acos(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::acos(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the arctangent of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-atan(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::atan(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic sine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-sinh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::sinh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic cosine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-cosh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::cosh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic tangent of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-tanh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::tanh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic arcsine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-asinh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::asinh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic arccosine of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-acosh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::acosh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the hyperbolic arctangent of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-atanh(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::atanh(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the exponential of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-exp(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::exp(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the natural logarithm of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-log(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::log(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the base-10 logarithm of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-log10(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::log10(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the base-2 logarithm of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-log2(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::log2(vec[i]));
-    }
-    return result;
-}
-
-/* Powers a vector by a scalar. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-pow(const vector<T, N>& vec, T scalar) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::pow(vec[i], scalar));
-    }
-    return result;
-}
-
-/* Powers a vector by a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-pow(const vector<T, N>& vec1, const vector<T, N>& vec2) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::pow(vec1[i], vec2[i]));
-    }
-    return result;
-}
-
-/* Hypotenuse of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-hypot(const vector<T, N>& vec1, const vector<T, N>& vec2) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::hypot(vec1[i], vec2[i]));
-    }
-    return result;
-}
-
-/* Floor of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-floor(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::floor(vec[i]));
-    }
-    return result;
-}
-
-/* Ceiling of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-ceil(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::ceil(vec[i]));
-    }
-    return result;
-}
-
-/* Truncates a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-trunc(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::trunc(vec[i]));
-    }
-    return result;
-}
-
-/* Rounds a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-round(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::round(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the nearest integer to a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-nearbyint(const vector<T, N>& vec) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::nearbyint(vec[i]));
-    }
-    return result;
-}
-
-/* Returns the remainder of a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-remainder(const vector<T, N>& vec1, const vector<T, N>& vec2) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::remainder(vec1[i], vec2[i]));
-    }
-    return result;
-}
-
-/* Clamp a vector. */
-template<typename T, std::size_t N>
-constexpr scl_inline vector<T, N>
-clamp(const vector<T, N>& vec, 
-      const vector<T, N>& min, 
-      const vector<T, N>& max) {
-    vector<T, N> result;
-    for (std::size_t i = 0; i < N; ++i) {
-        result.set_element(i, std::min(std::max(vec[i], min[i]), max[i]));
-    }
-    return result;
-}
-
-/*============================================================================*/
-/* Vector Class Type Aliases.                                                 */
-/*============================================================================*/
-
-/*============================================================================*/
-/* Signed Vector Types                                                        */
-/*============================================================================*/
-
-/* A Vector of 8 Signed, 8-Bit Integers.
- * Is equivalent to (8 * sizeof(i8)) */
-using i8x8   = vector<i8,  8>;
-/* A Vector of 16 Signed, 8-Bit Integers. 
- * Is equivalent to (16 * sizeof(i8)) */
-using i8x16  = vector<i8, 16>;
-/* A Vector of 32 Signed, 8-Bit Integers. 
- * Is equivalent to (32 * sizeof(i8)) */
-using i8x32  = vector<i8, 32>;
-/* A Vector of 64 Signed, 8-Bit Integers. 
- * Is equivalent to (64 * sizeof(i8)) */
-using i8x64  = vector<i8, 64>;
-/* A Vector of 2 Signed, 16-Bit Integers. 
- * Is equivalent to (2 * sizeof(i16)) */
-using i16x2  = vector<i16, 2>;
-/* A Vector of 4 Signed, 16-Bit Integers. 
- * Is equivalent to (4 * sizeof(i16)) */
-using i16x4  = vector<i16, 4>;
-/* A Vector of 8 Signed, 16-Bit Integers. 
- * Is equivalent to (8 * sizeof(i16)) */
-using i16x8  = vector<i16, 8>;
-/* A Vector of 16 Signed, 16-Bit Integers. 
- * Is equivalent to (16 * sizeof(i16)) */
-using i16x16 = vector<i16, 16>;
-/* A Vector of 32 Signed, 16-Bit Integers. 
- * Is equivalent to (32 * sizeof(i16)) */
-using i16x32 = vector<i16, 32>;
-/* A Vector of 2 Signed, 32-Bit Integers. 
- * Is equivalent to (2 * sizeof(i32)) */
-using i32x2  = vector<i32, 2>;
-/* A Vector of 4 Signed, 32-Bit Integers. 
- * Is equivalent to (4 * sizeof(i32)) */
-using i32x4  = vector<i32, 4>;
-/* A Vector of 8 Signed, 32-Bit Integers. 
- * Is equivalent to (8 * sizeof(i32)) */
-using i32x8  = vector<i32, 8>;
-/* A Vector of 16 Signed, 32-Bit Integers.
- * Is equivalent to (16 * sizeof(i32)) */
-using i32x16 = vector<i32, 16>;
-/* A Vector of 2 Signed, 64-Bit Integers. 
- * Is equivalent to (2 * sizeof(i64)) */
-using i64x2  = vector<i64, 2>;
-/* A Vector of 4 Signed, 64-Bit Integers. 
- * Is equivalent to (4 * sizeof(i64)) */
-using i64x4  = vector<i64, 4>;
-/* A Vector of 8 Signed, 64-Bit Integers. 
- * Is equivalent to (8 * sizeof(i64)) */
-using i64x8  = vector<i64, 8>;
-
-/*============================================================================*/
-/* Unsigned Vector Types                                                      */
-/*============================================================================*/
-
-/* A Vector of 8 Unsigned, 8-Bit Integers.
- * Is equivalent to (8 * sizeof(u8)) */
-using u8x8   = vector<u8,  8>;
-/* A Vector of 16 Unsigned, 8-Bit Integers. 
- * Is equivalent to (16 * sizeof(u8)) */
-using u8x16  = vector<u8, 16>;
-/* A Vector of 32 Unsigned, 8-Bit Integers. 
- * Is equivalent to (32 * sizeof(u8)) */
-using u8x32  = vector<u8, 32>;
-/* A Vector of 64 Unsigned, 8-Bit Integers. 
- * Is equivalent to (64 * sizeof(u8)) */
-using u8x64  = vector<u8, 64>;
-/* A Vector of 2 Unsigned, 16-Bit Integers. 
- * Is equivalent to (2 * sizeof(u16)) */
-using u16x2  = vector<u16, 2>;
-/* A Vector of 4 Unsigned, 16-Bit Integers. 
- * Is equivalent to (4 * sizeof(u16)) */
-using u16x4  = vector<u16, 4>;
-/* A Vector of 8 Unsigned, 16-Bit Integers. 
- * Is equivalent to (8 * sizeof(u16)) */
-using u16x8  = vector<u16, 8>;
-/* A Vector of 16 Unsigned, 16-Bit Integers. 
- * Is equivalent to (16 * sizeof(u16)) */
-using u16x16 = vector<u16, 16>;
-/* A Vector of 32 Unsigned, 16-Bit Integers. 
- * Is equivalent to (32 * sizeof(u16)) */
-using u16x32 = vector<u16, 32>;
-/* A Vector of 2 Unsigned, 32-Bit Integers. 
- * Is equivalent to (2 * sizeof(u32)) */
-using u32x2  = vector<u32, 2>;
-/* A Vector of 4 Unsigned, 32-Bit Integers. 
- * Is equivalent to (4 * sizeof(u32)) */
-using u32x4  = vector<u32, 4>;
-/* A Vector of 8 Unsigned, 32-Bit Integers. 
- * Is equivalent to (8 * sizeof(u32)) */
-using u32x8  = vector<u32, 8>;
-/* A Vector of 16 Unsigned, 32-Bit Integers.
- * Is equivalent to (16 * sizeof(u32)) */
-using u32x16 = vector<u32, 16>;
-/* A Vector of 2 Unsigned, 64-Bit Integers. 
- * Is equivalent to (2 * sizeof(u64)) */
-using u64x2  = vector<u64, 2>;
-/* A Vector of 4 Unsigned, 64-Bit Integers. 
- * Is equivalent to (4 * sizeof(u64)) */
-using u64x4  = vector<u64, 4>;
-/* A Vector of 8 Unsigned, 64-Bit Integers. 
- * Is equivalent to (8 * sizeof(u64)) */
-using u64x8  = vector<u64, 8>;
-
-/*============================================================================*/
-/* Floating Point Vector Types                                                */
-/*============================================================================*/
-
-/* A Vector of 2 Single-Precision Floating Point Numbers. 
- * Is equivalent to (2 * sizeof(f32)) */
-using f32x2  = vector<f32, 2>;
-/* A Vector of 4 Single-Precision Floating Point Numbers. 
- * Is equivalent to (4 * sizeof(f32)) */
-using f32x4  = vector<f32, 4>;
-/* A Vector of 8 Single-Precision Floating Point Numbers. 
- * Is equivalent to (8 * sizeof(f32)) */
-using f32x8  = vector<f32, 8>;
-/* A Vector of 16 Single-Precision Floating Point Numbers.
- * Is equivalent to (16 * sizeof(f32)) */
-using f32x16 = vector<f32, 16>;
-/* A Vector of 2 Double-Precision Floating Point Numbers. 
- * Is equivalent to (2 * sizeof(f64)) */
-using f64x2  = vector<f64, 2>;
-/* A Vector of 4 Double-Precision Floating Point Numbers. 
- * Is equivalent to (4 * sizeof(f64)) */
-using f64x4  = vector<f64, 4>;
-/* A Vector of 8 Double-Precision Floating Point Numbers. 
- * Is equivalent to (8 * sizeof(f64)) */
-using f64x8  = vector<f64, 8>;
-
-/*============================================================================*/
-/* Boolean Vector Types                                                       */
-/*============================================================================*/
-
-/* A Vector of 8 Boolean Values. Is equivalent to (8 * sizeof(bool)) */
-using bx8   = vector<bool, 8>;
-/* A Vector of 16 Boolean Values. Is equivalent to (16 * sizeof(bool)) */
-using bx16  = vector<bool, 16>;
-/* A Vector of 32 Boolean Values. Is equivalent to (32 * sizeof(bool)) */
-using bx32  = vector<bool, 32>;
-/* A Vector of 64 Boolean Values. Is equivalent to (64 * sizeof(bool)) */
-using bx64  = vector<bool, 64>;
-/* A Vector of 128 Boolean Values. Is equivalent to (128 * sizeof(bool)) */
-using bx128 = vector<bool, 128>;
-/* A Vector of 256 Boolean Values. Is equivalent to (256 * sizeof(bool)) */
-using bx256 = vector<bool, 256>;
-/* A Vector of 512 Boolean Values. Is equivalent to (512 * sizeof(bool)) */
-using bx512 = vector<bool, 512>;
 
 } /* namespace scl */
