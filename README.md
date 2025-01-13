@@ -21,8 +21,8 @@ To begin using SCL, just simply include the SCL header (scl.hpp) in your project
 
 using namespace scl;
 
-auto arithmetic_test(const f64x4& a, const f64x4& b, const f64x4& c, const f64x4& d) {
-    return scl::sqrt((a - b * c) / d);
+auto arithmetic_test(const simd<float, 8>& a, const simd<float, 8>& b, const simd<float, 8>& c, const simd<float, 8>& d) {
+    return ((a - b * c) / d).horizontal_sum();
 }
 
 ```
