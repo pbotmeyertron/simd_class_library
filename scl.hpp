@@ -16,9 +16,13 @@
 #include <string>
 #include <cstring>
 #include <iostream>
-#include <array>
 #include <cmath>
+#include <array>
 
+/* Sforzinda Includes */
+#include "sf_base.hpp"
+
+namespace sf  {
 namespace scl {
 
 template <typename T, std::size_t N>
@@ -282,9 +286,9 @@ public:
             }
     }
 
-    /*-----------------------------*/
-    /* Type Conversion Constructor */
-    /*-----------------------------*/
+    /*------------------------------*/
+    /* Type Conversion Constructors */
+    /*------------------------------*/
 
     explicit 
     operator bool() const {
@@ -296,6 +300,15 @@ public:
             #endif
         }
         return false;
+    }
+
+    explicit
+    operator std::array<T, N>() const {
+        #if defined(__clang__)
+            return data;
+        #else
+            return data;
+        #endif
     }
 
     /*----------------------*/
@@ -855,15 +868,21 @@ public:
     friend mask_type 
     operator<(const simd& lhs, const simd& rhs) {
         #if defined(__clang__)
-            return mask_type { lhs.data < rhs.data };
-        #else
-            std::array<typename mask_type::element_type, N> result{};
+            typename mask_type::vector_type result;
             for (std::size_t i = 0; i < N; ++i) {
-                 result[i] = lhs.data[i] < rhs.data[i]            ? 
-                             typename mask_type::element_type(~0) : 
-                             typename mask_type::element_type(0);
+                result[i] = lhs.data[i] < rhs.data[i]           ? 
+                           ~typename mask_type::element_type(0) : 
+                            typename mask_type::element_type(0);
             }
-            return mask_type(result);
+            return mask_type{result};
+        #else
+            std::array<typename mask_type::element_type, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                result[i] = lhs.data[i] < rhs.data[i]           ? 
+                           ~typename mask_type::element_type(0) : 
+                            typename mask_type::element_type(0);
+            }
+            return mask_type{result};
         #endif
     }
     
@@ -900,18 +919,24 @@ public:
     friend mask_type 
     operator>(const simd& lhs, const simd& rhs) {
         #if defined(__clang__)
-            return mask_type { lhs.data > rhs.data };
-        #else
-            std::array<typename mask_type::element_type, N> result{};
+            typename mask_type::vector_type result;
             for (std::size_t i = 0; i < N; ++i) {
-                 result[i] = lhs.data[i] > rhs.data[i]            ? 
-                             typename mask_type::element_type(~0) : 
-                             typename mask_type::element_type(0);
+                result[i] = lhs.data[i] > rhs.data[i]           ? 
+                           ~typename mask_type::element_type(0) : 
+                            typename mask_type::element_type(0);
             }
-            return mask_type(result);
+            return mask_type{result};
+        #else
+            std::array<typename mask_type::element_type, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                result[i] = lhs.data[i] > rhs.data[i]           ? 
+                           ~typename mask_type::element_type(0) : 
+                            typename mask_type::element_type(0);
+            }
+            return mask_type{result};
         #endif
-    }
-    
+    }    
+
     friend mask_type 
     operator>(const simd& lhs, const T& rhs) {
         #if defined(__clang__)
@@ -1175,6 +1200,49 @@ public:
             return simd { result };
         #endif
     }
+
+    /* Reverse the order of elements in the vector. */
+    constexpr simd
+    reverse() const {
+        #if defined(__clang__)
+            simd result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result.data[i] = data[N - 1 - i];
+            }
+            return result;
+        #else
+            std::array<T, N> result;
+            for (std::size_t i = 0; i < N; ++i) {
+                 result[i] = data[N - 1 - i];
+            }
+            return simd { result };
+        #endif
+    }
+
+    /* Get low part of the vector. */
+    template<std::size_t M>
+    constexpr simd<T, M>
+    get_low() const {
+        static_assert(M <= N, "Low size must be less than or equal to simd size");
+        simd<T, M> result;
+        for (std::size_t i = 0; i < M; ++i) {
+             result.data[i] = data[i];
+        }
+        return result;
+    }
+
+    /* Get high part of the vector. */
+    template<std::size_t M>
+    constexpr simd<T, M>
+    get_high() const {
+        static_assert(M <= N, "High size must be less than or equal to simd size");
+        simd<T, M> result;
+        for (std::size_t i = 0; i < M; ++i) {
+             result.data[i] = data[N - M + i];
+        }
+        return result;
+    }
+
 };
 
 /*-------------------------------------------------*/
@@ -1183,7 +1251,7 @@ public:
 
 /* Cut off vector to n elements. The last elements are set to zero. */
 template<typename T, std::size_t N>
-constexpr static inline simd<T, N>
+constexpr sf_inline simd<T, N>
 cutoff(const simd<T, N>& vector, std::size_t n) {
     #if defined(__clang__)
         simd<T, N> result;
@@ -1202,7 +1270,7 @@ cutoff(const simd<T, N>& vector, std::size_t n) {
 
 /* Select between two simd vectors, element by element, based on mask */
 template<typename T, std::size_t N>
-constexpr static inline simd<T, N>
+constexpr sf_inline simd<T, N>
 select(const typename simd<T, N>::mask_type& mask, 
        const          simd<T, N>&            a, 
        const          simd<T, N>&            b) {
@@ -1223,7 +1291,7 @@ select(const typename simd<T, N>::mask_type& mask,
 
 /* Blend two vectors according to immediate constant mask */
 template<std::size_t... I, typename T, std::size_t N>
-constexpr static inline simd<T, N>
+constexpr sf_inline simd<T, N>
 blend(const simd<T, N>& a, const simd<T, N>& b) {
     #if defined(__clang__)
         simd<T, N> result;
@@ -1244,7 +1312,7 @@ blend(const simd<T, N>& a, const simd<T, N>& b) {
 
 /* Permute elements in simd vector according to immediate indices */
 template<std::size_t... I, typename T, std::size_t N>
-constexpr static inline simd<T, sizeof...(I)>
+constexpr sf_inline simd<T, sizeof...(I)>
 permute(const simd<T, N>& vector) {
     static_assert(sizeof...(I) <= N, "Too many indices for simd vector size");
     
@@ -1268,9 +1336,10 @@ permute(const simd<T, N>& vector) {
 
 /* Shuffle elements from two vectors according to immediate indices */
 template<std::size_t... I, typename T, std::size_t N>
-constexpr static inline simd<T, sizeof...(I)>
+constexpr sf_inline simd<T, sizeof...(I)>
 shuffle(const simd<T, N>& a, const simd<T, N>& b) {
-    static_assert(sizeof...(I) <= 2*N, "Too many indices for simd vector size");
+    static_assert(sizeof...(I) <= 2*N, 
+                  "Too many indices for simd vector size");
     
     #if defined(__clang__)
         using result_type = simd<T, sizeof...(I)>;
@@ -1300,11 +1369,133 @@ shuffle(const simd<T, N>& a, const simd<T, N>& b) {
 
 /* Swap two simd vectors */
 template<typename T, std::size_t N>
-constexpr static inline void
+constexpr sf_inline void
 swap(simd<T, N>& a, simd<T, N>& b) {
     simd<T, N> temp = a;
                a    = b;
                b    = temp;
 }
 
+/* Sign combine two simd vectors */
+template<typename T, std::size_t N>
+constexpr sf_inline simd<T, N>
+sign_combine(const simd<T, N>& a, const simd<T, N>& b) {
+    #if defined(__clang__)
+        return simd<T, N> { a.data ^ 
+                           (b.data & (T(1) << (sizeof(T) * 8 - 1))) };
+    #else
+        std::array<T, N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result[i] = a.data[i] ^ 
+                        (b.data[i] & (T(1) << (sizeof(T) * 8 - 1)));
+        }
+        return simd<T, N> { result };
+    #endif
+}
+
+/* Split simd vector into two simd vectors. */
+template<typename T, std::size_t N>
+constexpr sf_inline std::pair<simd<T, N/2>, simd<T, N/2>>
+split(const simd<T, N>& vector) {
+    static_assert(N % 2 == 0, "Split size must be even");
+    #if defined(__clang__)
+        simd<T, N/2> a;
+        simd<T, N/2> b;
+        for (std::size_t i = 0; i < N/2; ++i) {
+             a.data[i] = vector.data[i];
+             b.data[i] = vector.data[N/2 + i];
+        }
+        return std::make_pair(a, b);
+    #else
+        std::array<T, N/2> a;
+        std::array<T, N/2> b;
+        for (std::size_t i = 0; i < N/2; ++i) {
+             a[i] = vector.data[i];
+             b[i] = vector.data[N/2 + i];
+        }
+        return std::make_pair(simd<T, N/2> { a }, simd<T, N/2> { b });
+    #endif
+}
+
+/* Merge two simd vectors into one simd vector. */
+template<typename T, std::size_t N>
+constexpr sf_inline simd<T, 2*N>
+merge(const simd<T, N>& a, const simd<T, N>& b) {
+    #if defined(__clang__)
+        simd<T, 2*N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result.data[i] = a.data[i];
+             result.data[N + i] = b.data[i];
+        }
+        return result;
+    #else
+        std::array<T, 2*N> result;
+        for (std::size_t i = 0; i < N; ++i) {
+             result[i] = a.data[i];
+             result[N + i] = b.data[i];
+        }
+        return simd<T, 2*N> { result };
+    #endif
+}
+
+/*-----------------------------*/
+/* Logical and State Functions */
+/*-----------------------------*/
+
+/* Returns true if all bits are 1. */
+template<typename T, std::size_t N>
+constexpr sf_inline bool
+horizontal_and(const typename simd<T, N>::mask_type& mask) {
+    bool result = true;
+    for (std::size_t i = 0; i < N; ++i) {
+         result &= mask.data[i];
+    }
+    return result;
+}
+
+/* Returns true if any bit is 1. */
+template<typename T, std::size_t N>
+constexpr sf_inline bool
+horizontal_or(const typename simd<T, N>::mask_type& mask) {
+    bool result = false;
+    for (std::size_t i = 0; i < N; ++i) {
+         result |= mask.data[i];
+    }
+    return result;
+}
+
+/* Returns true if all bits are 0. */
+template<typename T, std::size_t N>
+constexpr sf_inline bool
+horizontal_not(const typename simd<T, N>::mask_type& mask) {
+    bool result = true;
+    for (std::size_t i = 0; i < N; ++i) {
+         result &= !mask.data[i];
+    }
+    return result;
+}
+
+/* Convert boolean vector to integer bitfield. */
+template<typename T, std::size_t N>
+constexpr sf_inline std::size_t
+to_bitfield(const typename simd<T, N>::mask_type& mask) {
+    std::size_t result = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+         result |= (mask.data[i] ? 1 : 0) << i;
+    }
+    return result;
+}
+
+/* Convert integer bitfield to boolean vector. */
+template<typename T, std::size_t N>
+constexpr sf_inline typename simd<T, N>::mask_type
+to_mask(std::size_t bitfield) {
+    typename simd<T, N>::mask_type result;
+    for (std::size_t i = 0; i < N; ++i) {
+         result.data[i] = (bitfield & (1 << i)) != 0;
+    }
+    return result;
+}
+
 } /* namespace scl */
+} /* namespace sf */
